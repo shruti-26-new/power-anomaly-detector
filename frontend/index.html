@@ -1,0 +1,58 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Power Anomaly Detector</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+body{font-family:system-ui;margin:0;background:#0f172a;color:#e2e8f0;padding:24px}
+.row{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.card{background:#1e293b;padding:14px 20px;border-radius:10px}
+.card b{display:block;font-size:24px}
+button{background:#3b82f6;color:#fff;border:0;padding:10px 16px;border-radius:8px;cursor:pointer}
+table{width:100%;border-collapse:collapse;font-size:14px}td,th{padding:6px;border-bottom:1px solid #334155;text-align:left}
+</style></head><body><div id="root"></div>
+<script type="text/babel">
+const API = "http://localhost:8000";
+const {useState, useEffect, useRef} = React;
+function App(){
+  const [data,setData]=useState([]), [sum,setSum]=useState({}), [busy,setBusy]=useState(false);
+  const ref=useRef(), chart=useRef();
+  const load=async()=>{
+    setData(await (await fetch(API+"/readings?limit=2000")).json());
+    setSum(await (await fetch(API+"/summary")).json());
+  };
+  const run=async(path)=>{setBusy(true); await fetch(API+path,{method:"POST"}); await load(); setBusy(false);};
+  useEffect(()=>{load()},[]);
+  useEffect(()=>{
+    if(!ref.current||!data.length) return;
+    chart.current?.destroy();
+    chart.current=new Chart(ref.current,{type:"line",data:{
+      labels:data.map(d=>d.ts.slice(5,16)),
+      datasets:[
+        {label:"Power (MW)",data:data.map(d=>d.power),borderColor:"#38bdf8",pointRadius:0,borderWidth:1},
+        {label:"Anomaly",data:data.map(d=>d.is_anomaly?d.power:null),borderColor:"transparent",
+         backgroundColor:"#ef4444",pointRadius:5,showLine:false}]},
+      options:{animation:false,scales:{x:{ticks:{maxTicksLimit:10}}}}});
+  },[data]);
+  const top=[...data].filter(d=>d.is_anomaly).sort((a,b)=>b.score-a.score).slice(0,10);
+  return <div>
+    <h2>⚡ Power Consumption Anomaly Detector</h2>
+    <div className="row">
+      <button disabled={busy} onClick={()=>run("/generate?n=2000")}>1. Generate data</button>
+      <button disabled={busy} onClick={()=>run("/analyze?contamination=0.02")}>2. Detect anomalies</button>
+    </div>
+    <div className="row">
+      <div className="card">Readings<b>{sum.total??0}</b></div>
+      <div className="card">Anomalies<b style={{color:"#ef4444"}}>{sum.anomalies??0}</b></div>
+      <div className="card">Avg power (MW)<b>{(sum.avg_power||0).toFixed(1)}</b></div>
+    </div>
+    <div className="card"><canvas ref={ref} height="110"></canvas></div>
+    <h3>Top anomalies</h3>
+    <table><thead><tr><th>Time</th><th>Voltage</th><th>Freq</th><th>Power</th><th>Score</th></tr></thead>
+    <tbody>{top.map(d=><tr key={d.id}><td>{d.ts}</td><td>{d.voltage.toFixed(1)}</td>
+      <td>{d.frequency.toFixed(3)}</td><td>{d.power.toFixed(1)}</td><td>{d.score.toFixed(3)}</td></tr>)}</tbody></table>
+  </div>;
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script></body></html>
